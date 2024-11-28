@@ -10,7 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       issues: write
-      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -47,39 +46,14 @@ jobs:
               deletions: file.deletions
             }));
             
-            // Store outputs
             core.setOutput('sha', sha);
             core.setOutput('message', message);
             core.setOutput('author', author);
             core.setOutput('date', date);
             core.setOutput('files', JSON.stringify(files));
-            
-            try {
-              const { readFile, writeFile } = require('fs/promises');
-              let changed = true;
-              
-              try {
-                const data = await readFile('last_commit.json', 'utf8');
-                const previousData = JSON.parse(data);
-                if (previousData.sha === sha) {
-                  changed = false;
-                }
-              } catch (error) {
-                // File doesn't exist yet, that's ok
-              }
-              
-              if (changed) {
-                await writeFile('last_commit.json', JSON.stringify({ sha, date }));
-              }
-              
-              core.setOutput('changed', changed.toString());
-            } catch (error) {
-              core.setOutput('changed', 'true'); // Default to true on error
-              core.warning('Error handling commit state: ' + error.message);
-            }
+            core.setOutput('changed', 'true');
 
       - name: Send email notification
-        if: steps.latest.outputs.changed == 'true'
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
@@ -101,12 +75,11 @@ jobs:
             View commit: https://github.com/phidatahq/phidata/commit/${{ steps.latest.outputs.sha }}
 
       - name: Create issue for changes
-        if: steps.latest.outputs.changed == 'true'
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const files = JSON.parse(steps.latest.outputs.files);
+            const files = JSON.parse(process.env.FILES);
             
             let fileChanges = files.map(file => 
               `- ${file.name} (${file.status}): +${file.additions} -${file.deletions}`
@@ -119,13 +92,19 @@ jobs:
               body: `# New changes detected in phidata repository
 
               ## Commit Details
-              - **Author:** ${steps.latest.outputs.author}
-              - **Date:** ${steps.latest.outputs.date}
-              - **Message:** ${steps.latest.outputs.message}
-              - **SHA:** ${steps.latest.outputs.sha}
+              - **Author:** ${process.env.AUTHOR}
+              - **Date:** ${process.env.DATE}
+              - **Message:** ${process.env.MESSAGE}
+              - **SHA:** ${process.env.SHA}
               
               ## Changed Files
               ${fileChanges}
               
-              [View commit on GitHub](https://github.com/phidatahq/phidata/commit/${steps.latest.outputs.sha})`
+              [View commit on GitHub](https://github.com/phidatahq/phidata/commit/${process.env.SHA})`
             });
+        env:
+          FILES: ${{ steps.latest.outputs.files }}
+          AUTHOR: ${{ steps.latest.outputs.author }}
+          DATE: ${{ steps.latest.outputs.date }}
+          MESSAGE: ${{ steps.latest.outputs.message }}
+          SHA: ${{ steps.latest.outputs.sha }}
