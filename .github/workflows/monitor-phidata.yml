@@ -9,33 +9,30 @@ jobs:
   monitor:
     runs-on: ubuntu-latest
     steps:
-      - name: Get repository updates
-        id: updates
+      - name: Check for repository updates
+        id: check
         uses: actions/github-script@v6
         with:
           script: |
-            const { data: commits } = await github.rest.repos.listCommits({
+            // Get the latest commit
+            const { data: latestCommit } = await github.rest.repos.getCommit({
               owner: 'phidatahq',
               repo: 'phidata',
-              per_page: 1
+              ref: 'main'  // or your default branch
             });
+
+            // Save the data as step outputs
+            core.setOutput('sha', latestCommit.sha);
+            core.setOutput('author', latestCommit.commit.author.name);
+            core.setOutput('email', latestCommit.commit.author.email);
+            core.setOutput('date', latestCommit.commit.author.date);
+            core.setOutput('message', latestCommit.commit.message);
             
-            const commit = commits[0];
-            const { data: commitDetails } = await github.rest.repos.getCommit({
-              owner: 'phidatahq',
-              repo: 'phidata',
-              ref: commit.sha
-            });
-            
-            const fileChanges = commitDetails.files.map(file => 
-              `${file.filename} (${file.status}): +${file.additions} -${file.deletions}`
-            ).join('\n');
-            
-            core.setOutput('author', commit.commit.author.name);
-            core.setOutput('date', commit.commit.author.date);
-            core.setOutput('message', commit.commit.message);
-            core.setOutput('sha', commit.sha);
-            core.setOutput('changes', fileChanges);
+            // Format changed files
+            const changes = latestCommit.files
+              .map(f => `${f.filename} (${f.status}): +${f.additions} -${f.deletions}`)
+              .join('\n');
+            core.setOutput('changes', changes);
 
       - name: Send email
         uses: dawidd6/action-send-mail@v3
@@ -44,47 +41,50 @@ jobs:
           server_port: 465
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "🔄 Phidata Repository Update Check"
+          subject: Phidata Repository Update - ${{ steps.check.outputs.date }}
           to: alexanddanik@gmail.com
           from: GitHub Actions
           body: |
-            Phidata Repository Status Update
+            Latest update from Phidata repository:
 
-            Latest Commit Details:
-            Author: ${{ steps.updates.outputs.author }}
-            Date: ${{ steps.updates.outputs.date }}
-            Message: ${{ steps.updates.outputs.message }}
-            SHA: ${{ steps.updates.outputs.sha }}
+            Commit: ${{ steps.check.outputs.sha }}
+            Author: ${{ steps.check.outputs.author }}
+            Date: ${{ steps.check.outputs.date }}
+            Message: ${{ steps.check.outputs.message }}
 
-            Changed Files:
-            ${{ steps.updates.outputs.changes }}
+            Changes:
+            ${{ steps.check.outputs.changes }}
 
-            View commit: https://github.com/phidatahq/phidata/commit/${{ steps.updates.outputs.sha }}
+            View changes: https://github.com/phidatahq/phidata/commit/${{ steps.check.outputs.sha }}
 
-      - name: Create issue
+      - name: Create tracking issue
         uses: actions/github-script@v6
         with:
           script: |
+            const { sha, author, date, message, changes } = process.env;
+            
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `📦 Phidata Update Check - ${new Date().toISOString().split('T')[0]}`,
-              body: `# Phidata Repository Status
+              title: `Phidata Update - ${date}`,
+              body: `
+              # Phidata Repository Update
 
-              ## Latest Commit Details
-              - **Author:** ${process.env.AUTHOR}
-              - **Date:** ${process.env.DATE}
-              - **Message:** ${process.env.MESSAGE}
-              - **SHA:** ${process.env.SHA}
-              
-              ## Changed Files
-              ${process.env.CHANGES}
-              
-              [View commit on GitHub](https://github.com/phidatahq/phidata/commit/${process.env.SHA})`
+              ## Commit Details
+              - SHA: ${sha}
+              - Author: ${author}
+              - Date: ${date}
+              - Message: ${message}
+
+              ## Changes
+              ${changes}
+
+              [View Commit](https://github.com/phidatahq/phidata/commit/${sha})
+              `
             });
         env:
-          AUTHOR: ${{ steps.updates.outputs.author }}
-          DATE: ${{ steps.updates.outputs.date }}
-          MESSAGE: ${{ steps.updates.outputs.message }}
-          SHA: ${{ steps.updates.outputs.sha }}
-          CHANGES: ${{ steps.updates.outputs.changes }}
+          sha: ${{ steps.check.outputs.sha }}
+          author: ${{ steps.check.outputs.author }}
+          date: ${{ steps.check.outputs.date }}
+          message: ${{ steps.check.outputs.message }}
+          changes: ${{ steps.check.outputs.changes }}
