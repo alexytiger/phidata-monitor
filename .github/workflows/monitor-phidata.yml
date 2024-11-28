@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       issues: write
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -46,30 +47,36 @@ jobs:
               deletions: file.deletions
             }));
             
+            // Store outputs
             core.setOutput('sha', sha);
             core.setOutput('message', message);
             core.setOutput('author', author);
             core.setOutput('date', date);
             core.setOutput('files', JSON.stringify(files));
             
-            // Check for changes
             try {
-              const fs = require('fs');
-              if (fs.existsSync('last_commit.txt')) {
-                const previousData = JSON.parse(fs.readFileSync('last_commit.txt', 'utf8'));
+              const { readFile, writeFile } = require('fs/promises');
+              let changed = true;
+              
+              try {
+                const data = await readFile('last_commit.json', 'utf8');
+                const previousData = JSON.parse(data);
                 if (previousData.sha === sha) {
-                  core.setOutput('changed', 'false');
-                  return;
+                  changed = false;
                 }
+              } catch (error) {
+                // File doesn't exist yet, that's ok
               }
+              
+              if (changed) {
+                await writeFile('last_commit.json', JSON.stringify({ sha, date }));
+              }
+              
+              core.setOutput('changed', changed.toString());
             } catch (error) {
-              console.log('No previous commit data found');
+              core.setOutput('changed', 'true'); // Default to true on error
+              core.warning('Error handling commit state: ' + error.message);
             }
-            
-            // Save current state
-            const currentData = { sha, date };
-            fs.writeFileSync('last_commit.txt', JSON.stringify(currentData));
-            core.setOutput('changed', 'true');
 
       - name: Send email notification
         if: steps.latest.outputs.changed == 'true'
@@ -92,9 +99,6 @@ jobs:
             - SHA: ${{ steps.latest.outputs.sha }}
 
             View commit: https://github.com/phidatahq/phidata/commit/${{ steps.latest.outputs.sha }}
-            
-            Changed Files:
-            ${{ steps.latest.outputs.files }}
 
       - name: Create issue for changes
         if: steps.latest.outputs.changed == 'true'
