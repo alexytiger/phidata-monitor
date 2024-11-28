@@ -8,14 +8,9 @@ on:
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    permissions:
-      issues: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-        
-      - name: Get latest commit
-        id: latest
+      - name: Get repository updates
+        id: updates
         uses: actions/github-script@v6
         with:
           script: |
@@ -25,86 +20,71 @@ jobs:
               per_page: 1
             });
             
-            // Get last commit details
-            const latestCommit = commits[0];
-            const sha = latestCommit.sha;
-            const message = latestCommit.commit.message;
-            const author = latestCommit.commit.author.name;
-            const date = latestCommit.commit.author.date;
-            
-            // Get changed files
-            const { data: commit } = await github.rest.repos.getCommit({
+            const commit = commits[0];
+            const { data: commitDetails } = await github.rest.repos.getCommit({
               owner: 'phidatahq',
               repo: 'phidata',
-              ref: sha
+              ref: commit.sha
             });
             
-            const files = commit.files.map(file => ({
-              name: file.filename,
-              status: file.status,
-              additions: file.additions,
-              deletions: file.deletions
-            }));
+            const fileChanges = commitDetails.files.map(file => 
+              `${file.filename} (${file.status}): +${file.additions} -${file.deletions}`
+            ).join('\n');
             
-            core.setOutput('sha', sha);
-            core.setOutput('message', message);
-            core.setOutput('author', author);
-            core.setOutput('date', date);
-            core.setOutput('files', JSON.stringify(files));
-            core.setOutput('changed', 'true');
+            core.setOutput('author', commit.commit.author.name);
+            core.setOutput('date', commit.commit.author.date);
+            core.setOutput('message', commit.commit.message);
+            core.setOutput('sha', commit.sha);
+            core.setOutput('changes', fileChanges);
 
-      - name: Send email notification
+      - name: Send email
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
           server_port: 465
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "🔄 Phidata Repository Update Detected"
+          subject: "🔄 Phidata Repository Update Check"
           to: alexanddanik@gmail.com
           from: GitHub Actions
           body: |
-            New changes detected in phidata repository
+            Phidata Repository Status Update
 
-            Commit Details:
-            - Author: ${{ steps.latest.outputs.author }}
-            - Date: ${{ steps.latest.outputs.date }}
-            - Message: ${{ steps.latest.outputs.message }}
-            - SHA: ${{ steps.latest.outputs.sha }}
+            Latest Commit Details:
+            Author: ${{ steps.updates.outputs.author }}
+            Date: ${{ steps.updates.outputs.date }}
+            Message: ${{ steps.updates.outputs.message }}
+            SHA: ${{ steps.updates.outputs.sha }}
 
-            View commit: https://github.com/phidatahq/phidata/commit/${{ steps.latest.outputs.sha }}
+            Changed Files:
+            ${{ steps.updates.outputs.changes }}
 
-      - name: Create issue for changes
+            View commit: https://github.com/phidatahq/phidata/commit/${{ steps.updates.outputs.sha }}
+
+      - name: Create issue
         uses: actions/github-script@v6
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const files = JSON.parse(process.env.FILES);
-            
-            let fileChanges = files.map(file => 
-              `- ${file.name} (${file.status}): +${file.additions} -${file.deletions}`
-            ).join('\n');
-            
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `📦 Phidata Repository Update Detected - ${new Date().toISOString().split('T')[0]}`,
-              body: `# New changes detected in phidata repository
+              title: `📦 Phidata Update Check - ${new Date().toISOString().split('T')[0]}`,
+              body: `# Phidata Repository Status
 
-              ## Commit Details
+              ## Latest Commit Details
               - **Author:** ${process.env.AUTHOR}
               - **Date:** ${process.env.DATE}
               - **Message:** ${process.env.MESSAGE}
               - **SHA:** ${process.env.SHA}
               
               ## Changed Files
-              ${fileChanges}
+              ${process.env.CHANGES}
               
               [View commit on GitHub](https://github.com/phidatahq/phidata/commit/${process.env.SHA})`
             });
         env:
-          FILES: ${{ steps.latest.outputs.files }}
-          AUTHOR: ${{ steps.latest.outputs.author }}
-          DATE: ${{ steps.latest.outputs.date }}
-          MESSAGE: ${{ steps.latest.outputs.message }}
-          SHA: ${{ steps.latest.outputs.sha }}
+          AUTHOR: ${{ steps.updates.outputs.author }}
+          DATE: ${{ steps.updates.outputs.date }}
+          MESSAGE: ${{ steps.updates.outputs.message }}
+          SHA: ${{ steps.updates.outputs.sha }}
+          CHANGES: ${{ steps.updates.outputs.changes }}
