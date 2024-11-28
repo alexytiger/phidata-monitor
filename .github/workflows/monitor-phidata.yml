@@ -9,30 +9,23 @@ jobs:
   monitor:
     runs-on: ubuntu-latest
     steps:
-      - name: Check for repository updates
-        id: check
+      - name: Get latest commit
         uses: actions/github-script@v6
+        id: check
         with:
           script: |
-            // Get the latest commit
-            const { data: latestCommit } = await github.rest.repos.getCommit({
+            // Just get the latest commit info
+            const { data: commit } = await github.rest.repos.getCommit({
               owner: 'phidatahq',
               repo: 'phidata',
-              ref: 'main'  // or your default branch
+              ref: 'main'
             });
 
-            // Save the data as step outputs
-            core.setOutput('sha', latestCommit.sha);
-            core.setOutput('author', latestCommit.commit.author.name);
-            core.setOutput('email', latestCommit.commit.author.email);
-            core.setOutput('date', latestCommit.commit.author.date);
-            core.setOutput('message', latestCommit.commit.message);
-            
-            // Format changed files
-            const changes = latestCommit.files
-              .map(f => `${f.filename} (${f.status}): +${f.additions} -${f.deletions}`)
-              .join('\n');
-            core.setOutput('changes', changes);
+            // Set outputs directly without any file operations
+            core.setOutput('author', commit.commit.author.name);
+            core.setOutput('date', commit.commit.author.date);
+            core.setOutput('message', commit.commit.message);
+            core.setOutput('sha', commit.sha);
 
       - name: Send email
         uses: dawidd6/action-send-mail@v3
@@ -41,50 +34,14 @@ jobs:
           server_port: 465
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: Phidata Repository Update - ${{ steps.check.outputs.date }}
+          subject: Phidata Repository Update
           to: alexanddanik@gmail.com
           from: GitHub Actions
           body: |
-            Latest update from Phidata repository:
+            Latest Phidata Repository Update
 
-            Commit: ${{ steps.check.outputs.sha }}
             Author: ${{ steps.check.outputs.author }}
             Date: ${{ steps.check.outputs.date }}
             Message: ${{ steps.check.outputs.message }}
 
-            Changes:
-            ${{ steps.check.outputs.changes }}
-
-            View changes: https://github.com/phidatahq/phidata/commit/${{ steps.check.outputs.sha }}
-
-      - name: Create tracking issue
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const { sha, author, date, message, changes } = process.env;
-            
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: `Phidata Update - ${date}`,
-              body: `
-              # Phidata Repository Update
-
-              ## Commit Details
-              - SHA: ${sha}
-              - Author: ${author}
-              - Date: ${date}
-              - Message: ${message}
-
-              ## Changes
-              ${changes}
-
-              [View Commit](https://github.com/phidatahq/phidata/commit/${sha})
-              `
-            });
-        env:
-          sha: ${{ steps.check.outputs.sha }}
-          author: ${{ steps.check.outputs.author }}
-          date: ${{ steps.check.outputs.date }}
-          message: ${{ steps.check.outputs.message }}
-          changes: ${{ steps.check.outputs.changes }}
+            View commit: https://github.com/phidatahq/phidata/commit/${{ steps.check.outputs.sha }}
